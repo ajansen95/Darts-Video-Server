@@ -48,8 +48,7 @@ def send_score():
             "multiplier": random.randint(1, 3),
         }
         emit('score', score)
-        print('sent score')
-        time.sleep(3)
+        time.sleep(5)
 
 
 @socketio.on('score_stop')
