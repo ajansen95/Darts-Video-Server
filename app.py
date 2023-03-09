@@ -19,6 +19,10 @@ if not cap.isOpened():
 
 send_scores = False
 
+current_point = None
+
+point_history = []
+
 
 @socketio.on('connect')
 def test_connect():
@@ -38,21 +42,31 @@ def on_ping():
     emit('pong')
     print('sent pong')
 
+@socketio.on('reset')
+def reset():
+    point_history = []
 
 @socketio.on('score_request')
 def send_score():
-    print('sending scores...')
     global send_scores
-    send_scores = True
+    global current_point
 
-    while send_scores:
-        score = {
-            "number": random.randint(0, 20),
-            "multiplier": random.randint(1, 3),
-        }
-        emit('score', score)
-        print('sent score')
-        time.sleep(3)
+    while True:
+        if(send_scores):
+            print('sending score...') 
+            print(current_point)
+            if (current_point is not None):
+                multi, num = current_point
+                score = {
+                    "number": num,
+                    "multiplier": multi,
+                }
+                emit('score', score)
+                current_point = None
+                print('sent score')
+                send_scores = False
+        time.sleep(1)
+
 
 
 @socketio.on('score_stop')
@@ -74,6 +88,10 @@ def video():
 @app.route("/manipulated_video")
 def manipulated_video():
     return Response(manipulate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+@app.route("/mask")
+def mask_video():
+    return Response(get_mask(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 if __name__ == '__main__':
@@ -113,8 +131,8 @@ def generate():
 
 # Color ranges for the Masks in hsv color system
 # green mask
-lower_green = np.array([60, 50, 50])
-upper_green = np.array([80, 255, 255])
+lower_green = np.array([50, 50, 50])
+upper_green = np.array([90, 255, 255])
 
 # lower red mask (0-10)
 lower_red1 = np.array([0, 50, 50])
@@ -134,15 +152,7 @@ angles = [(351, 9, 20), (9, 27, 5), (27, 45, 12), (45, 63, 9), (63, 81, 14), (81
 
 distance = [(0, 15, 50), (16, 31, 25), (32, 194, 1), (194, 215, 3), (216, 325, 1), (326, 340, 2)]
 
-object_detector = cv2.createBackgroundSubtractorMOG2(history=600, varThreshold=60, detectShadows=False)
-
 coords = []
-point_history = []
-dart_thrown = False
-counter = 0
-current_point = None
-
-
 
 # Calibrate a given frame
 def calibrate_dartboard(frame):
@@ -161,6 +171,7 @@ def calibrate_dartboard(frame):
     # First for the contours of the red mask
     for cnt in contours:
         area = cv2.contourArea(cnt)
+        print(area)
         if area > 100:
             x, y, w, h = cv2.boundingRect(cnt)
             coords.append((int(y + (h / 2)), int(x + (w / 2))))
@@ -206,19 +217,27 @@ def dart_detection(contours):
                 coords.append((x, y))
 
 
-# Applies a circular Maks on the incoming image
+# Applies a circular Mask on the incoming image
 def circular_mask(frame):
+    # circular_mask around the dartboard
     mask = np.zeros((frame.shape[0], frame.shape[1], 1), dtype=np.uint8)
     cv2.circle(mask, (452, 452), 435, (255, 255, 255), -1, 8, 0)
     out = frame * mask
     white = 255 - mask
     stream = white - out
+
+    # make background transparent
+    tmp = cv2.cvtColor(stream, cv2.COLOR_BGR2GRAY)
+    _,alpha = cv2.threshold(tmp,0,0,cv2.THRESH_BINARY)
+    b, g, r = cv2.split(stream)
+    rgba = [b,g,r, alpha]
+    stream = cv2.merge(rgba,4)
+
     return stream
 
 
 # Calculates the Point value with a given Coordinate
 def get_point_value(coord):
-    cv2.waitKey(0)
     dst = math.dist(centre, coord)
 
     lineA = (centre, middle_up)
@@ -302,57 +321,84 @@ def calibration_points(frame):
     return frame
 
 
-def get_mask(frame):
-    img_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    green_mask = cv2.inRange(img_hsv, lower_green, upper_green)
-    red_mask = cv2.inRange(img_hsv, lower_red1, upper_red1) + cv2.inRange(img_hsv, lower_red2, upper_red2)
-    red_result = cv2.bitwise_and(frame, frame, mask=red_mask)
-    green_result = cv2.bitwise_and(frame, frame, mask=green_mask)
-    return red_result + green_result
+def get_mask():
+    while True:
+
+        ret, frame = cap.read()
+        img_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        green_mask = cv2.inRange(img_hsv, lower_green, upper_green)
+        red_mask = cv2.inRange(img_hsv, lower_red1, upper_red1) + cv2.inRange(img_hsv, lower_red2, upper_red2)
+        red_result = cv2.bitwise_and(frame, frame, mask=red_mask)
+        green_result = cv2.bitwise_and(frame, frame, mask=green_mask)
+        # output_frame = cv2.resize(output_frame, new_dimensions)
+        (flag, encodedImage) = cv2.imencode(".jpg", red_result+green_result)
+        if not flag:
+            continue
+
+        # yield the output frame in the byte format
+        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
+        bytearray(encodedImage) + b'\r\n')
 
 
 # Manipulate the current Camera frame
-def manipulate(cam_to_board):
-    global counter
+def manipulate():
+    object_detector = cv2.createBackgroundSubtractorMOG2(history=600, varThreshold=60, detectShadows=False)
+    
+    counter = 0
+    cam_to_board = []
+    global point_history
     global dart_thrown
     global coords
-    global point_history
     global current_point
-    ret, frame = cap.read()
-
-    if ret:
-        try:
-            cam_to_board = calibrate_dartboard(frame)
+    global send_scores
+    
+    
+    while True: 
+        ret, frame = cap.read() 
+        warp = frame
+        if(len(cam_to_board) > 0):
             warp = cv2.warpPerspective(frame, cam_to_board, (906, 906))
             warp = circular_mask(warp)
-        except:
-            warp = frame
-            print('no work')
-
-    while cap.isOpened():
-        if ret:
-            mask = object_detector.apply(warp)
-            contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            dart_detection(contours)
-            if dart_thrown:
-                counter += 1
-                if int(counter) > 5:
-                    counter = 0
-                    dart_thrown = False
-                    print(min(coords))
-                    if min(coords) == (0, 0):
-                        coords = []
-                        return
+        else:
+            try:     
+                cam_to_board = calibrate_dartboard(frame)   
+                print(cam_to_board) 
+            except:
+                print('error') 
+        
+        mask = object_detector.apply(warp)
+        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        dart_detection(contours)
+        if dart_thrown:
+            counter += 1
+            if int(counter) > 35:
+                counter = 0
+                dart_thrown = False
+                print(min(coords))
+                if min(coords) == (0, 0):
+                    coords = []
+                else:
                     x, y = get_point_value(min(coords))
                     current_point = (x, y)
+                    send_scores = True
+                    print(send_scores)
                     point_history.append((min(coords)))
                     coords = []
-
-            if len(point_history) > 0:
+        if len(point_history) > 0:
+            if (len(point_history) < 4):
                 for c in point_history:
                     x, y = c
                     cv2.drawMarker(warp, (x, y), (125, 125, 255), cv2.MARKER_CROSS, 10, 5)
-                if len(point_history) == 4:
-                    point_history = []
+            else:
+                for i in range(3):
+                    x, y = point_history[i]
+                    cv2.drawMarker(warp, (x, y), (125, 125, 255), cv2.MARKER_CROSS, 10, 5)
 
-            return warp
+
+        # output_frame = cv2.resize(output_frame, new_dimensions)
+        (flag, encodedImage) = cv2.imencode(".jpg", warp)
+        if not flag:
+            continue
+        # yield the output frame in the byte format
+        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
+            bytearray(encodedImage) + b'\r\n')
