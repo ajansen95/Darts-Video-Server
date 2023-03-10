@@ -12,7 +12,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'  # for SocketIO
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 if not cap.isOpened():
     print("Cannot open camera")
     exit()
@@ -44,6 +44,7 @@ def on_ping():
 
 @socketio.on('reset')
 def reset():
+    global point_history
     point_history = []
 
 @socketio.on('score_request')
@@ -61,7 +62,7 @@ def send_score():
                     "number": num,
                     "multiplier": multi,
                 }
-                emit('score', score)
+                emit('score', score, broadcast=True)
                 current_point = None
                 print('sent score')
                 send_scores = False
@@ -116,12 +117,12 @@ def generate():
             continue
 
         # output_frame = cv2.resize(output_frame, new_dimensions)
-        (flag, encodedImage) = cv2.imencode(".jpg", output_frame)
+        (flag, encodedImage) = cv2.imencode(".png", output_frame)
         if not flag:
             continue
 
         # yield the output frame in the byte format
-        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
+        yield (b'--frame\r\n' b'Content-Type: image/png\r\n\r\n' +
                bytearray(encodedImage) + b'\r\n')
         
 
@@ -171,7 +172,6 @@ def calibrate_dartboard(frame):
     # First for the contours of the red mask
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        print(area)
         if area > 100:
             x, y, w, h = cv2.boundingRect(cnt)
             coords.append((int(y + (h / 2)), int(x + (w / 2))))
@@ -223,17 +223,17 @@ def circular_mask(frame):
     mask = np.zeros((frame.shape[0], frame.shape[1], 1), dtype=np.uint8)
     cv2.circle(mask, (452, 452), 435, (255, 255, 255), -1, 8, 0)
     out = frame * mask
-    white = 255 - mask
+    white = mask - 255
     stream = white - out
 
     # make background transparent
     tmp = cv2.cvtColor(stream, cv2.COLOR_BGR2GRAY)
-    _,alpha = cv2.threshold(tmp,0,0,cv2.THRESH_BINARY)
+    _,alpha = cv2.threshold(tmp, 10, 255,cv2.THRESH_BINARY)
     b, g, r = cv2.split(stream)
     rgba = [b,g,r, alpha]
-    stream = cv2.merge(rgba,4)
+    dst = cv2.merge(rgba,4)
 
-    return stream
+    return dst
 
 
 # Calculates the Point value with a given Coordinate
@@ -358,7 +358,6 @@ def manipulate():
         warp = frame
         if(len(cam_to_board) > 0):
             warp = cv2.warpPerspective(frame, cam_to_board, (906, 906))
-            warp = circular_mask(warp)
         else:
             try:     
                 cam_to_board = calibrate_dartboard(frame)   
@@ -388,17 +387,18 @@ def manipulate():
             if (len(point_history) < 4):
                 for c in point_history:
                     x, y = c
-                    cv2.drawMarker(warp, (x, y), (125, 125, 255), cv2.MARKER_CROSS, 10, 5)
+                    cv2.drawMarker(warp, (x, y), (0, 255, 0), cv2.MARKER_CROSS, 10, 5)
             else:
                 for i in range(3):
                     x, y = point_history[i]
-                    cv2.drawMarker(warp, (x, y), (125, 125, 255), cv2.MARKER_CROSS, 10, 5)
-
-
+                    cv2.drawMarker(warp, (x, y), (0, 255, 0), cv2.MARKER_CROSS, 10, 5)
+                    
+        warp = circular_mask(warp)
+        
         # output_frame = cv2.resize(output_frame, new_dimensions)
-        (flag, encodedImage) = cv2.imencode(".jpg", warp)
+        (flag, encodedImage) = cv2.imencode(".png", warp)
         if not flag:
             continue
         # yield the output frame in the byte format
-        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
+        yield (b'--frame\r\n' b'Content-Type: image/png\r\n\r\n' +
             bytearray(encodedImage) + b'\r\n')
