@@ -390,7 +390,6 @@ def manipulate():
     
     
     while True: 
-        time.sleep(0.033)
         ret, frame = cap.read() 
         warp = frame
         if(len(cam_to_board) > 0):
