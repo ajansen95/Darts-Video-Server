@@ -23,6 +23,8 @@ current_point = None
 
 point_history = []
 
+cam_pos = None
+
 
 @socketio.on('connect')
 def test_connect():
@@ -160,6 +162,8 @@ def calibrate_dartboard(frame):
     board_points = [[453, 120], [785, 450], [453, 785], [120, 450]]
     cam_points = []
 
+    get_cam_position(frame)
+
     # Put masks on the frame
     img_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     green_mask = cv2.inRange(img_hsv, lower_green, upper_green)
@@ -225,16 +229,16 @@ def circular_mask(frame):
     out = frame * mask
     white = mask - 255
     stream = white - out
+    return stream
 
+def remove_background(frame):
     # make background transparent
-    tmp = cv2.cvtColor(stream, cv2.COLOR_BGR2GRAY)
+    tmp = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     _,alpha = cv2.threshold(tmp, 10, 255,cv2.THRESH_BINARY)
-    b, g, r = cv2.split(stream)
+    b, g, r = cv2.split(frame)
     rgba = [b,g,r, alpha]
     dst = cv2.merge(rgba,4)
-
     return dst
-
 
 # Calculates the Point value with a given Coordinate
 def get_point_value(coord):
@@ -339,10 +343,41 @@ def get_mask():
         yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
         bytearray(encodedImage) + b'\r\n')
 
+# returns the postition of the cam
+#   0 for right
+#   1 for left
+def get_cam_position(frame):
+    global cam_pos
+
+    img_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    green_mask = cv2.inRange(img_hsv, lower_green, upper_green)
+    contours, _ = cv2.findContours(green_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    areas = []
+
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area > 100:
+            x, y, w, h = cv2.boundingRect(cnt)
+            areas.append((int(x + (w / 2)), int(y + (h / 2)), area))
+
+    x, y, right = max(areas)
+    print(x, y)
+
+    cv2.drawMarker(frame, (x, y), (0, 255, 0), cv2.MARKER_CROSS, 10, 5)
+
+    x, y, left = min(areas)
+    print(x, y)
+
+
+    if(left > right):
+        cam_pos = 1
+    else:
+        cam_pos = 0
+
 
 # Manipulate the current Camera frame
 def manipulate():
-    object_detector = cv2.createBackgroundSubtractorMOG2(history=600, varThreshold=60, detectShadows=False)
+    object_detector = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=60, detectShadows=False)
     
     counter = 0
     cam_to_board = []
@@ -351,9 +386,11 @@ def manipulate():
     global coords
     global current_point
     global send_scores
+    global cam_pos
     
     
     while True: 
+        time.sleep(0.033)
         ret, frame = cap.read() 
         warp = frame
         if(len(cam_to_board) > 0):
@@ -361,40 +398,47 @@ def manipulate():
         else:
             try:     
                 cam_to_board = calibrate_dartboard(frame)   
+                print(cam_pos)
                 print(cam_to_board) 
             except:
                 print('error') 
         
+
+        warp = circular_mask(warp)
         mask = object_detector.apply(warp)
         contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         dart_detection(contours)
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area > 1000:
+                cv2.drawContours(warp, [cnt], -1, (0, 255, 0), 3)
         if dart_thrown:
             counter += 1
-            if int(counter) > 35:
+            if int(counter) > 70:
                 counter = 0
                 dart_thrown = False
                 print(min(coords))
                 if min(coords) == (0, 0):
                     coords = []
                 else:
-                    x, y = get_point_value(min(coords))
+                    if(cam_pos == 0):
+                        x, y = get_point_value(max(coords))
+                        point_history.append((max(coords)))
+                    else:
+                        x, y = get_point_value(min(coords))
+                        point_history.append((min(coords)))
+
                     current_point = (x, y)
                     send_scores = True
                     print(send_scores)
-                    point_history.append((min(coords)))
                     coords = []
         if len(point_history) > 0:
-            if (len(point_history) < 4):
-                for c in point_history:
-                    x, y = c
-                    cv2.drawMarker(warp, (x, y), (0, 255, 0), cv2.MARKER_CROSS, 10, 5)
-            else:
-                for i in range(3):
-                    x, y = point_history[i]
-                    cv2.drawMarker(warp, (x, y), (0, 255, 0), cv2.MARKER_CROSS, 10, 5)
-                    
-        warp = circular_mask(warp)
-        
+            for c in point_history:
+                x, y = c
+                cv2.drawMarker(warp, (x, y), (0, 255, 0), cv2.MARKER_CROSS, 10, 5)    
+    
+        warp = remove_background(warp)
+
         # output_frame = cv2.resize(output_frame, new_dimensions)
         (flag, encodedImage) = cv2.imencode(".png", warp)
         if not flag:
