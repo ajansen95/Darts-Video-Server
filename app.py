@@ -421,7 +421,7 @@ def manipulate():
                     dart_image = cv2.cvtColor(masked_warp, cv2.COLOR_BGR2GRAY)
 
                     cv2.imwrite("dart_image.png", dart_image)
-                    result_image = dart_image - subtraction_image
+                    result_image = subtraction_image - dart_image
                     cv2.imwrite("result_image.png", result_image)
 
                     current_point = (x, y)
