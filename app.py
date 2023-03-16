@@ -26,6 +26,7 @@ point_history = []
 cam_pos = None
 
 
+
 @socketio.on('connect')
 def test_connect():
     print('Client connected')
@@ -134,15 +135,15 @@ def generate():
 
 # Color ranges for the Masks in hsv color system
 # green mask
-lower_green = np.array([50, 50, 50])
+lower_green = np.array([50, 60, 60])
 upper_green = np.array([90, 255, 255])
 
 # lower red mask (0-10)
-lower_red1 = np.array([0, 50, 50])
+lower_red1 = np.array([0, 60, 60])
 upper_red1 = np.array([10, 255, 255])
 
 # upper red mask (165-180)
-lower_red2 = np.array([165, 50, 50])
+lower_red2 = np.array([165, 60, 60])
 upper_red2 = np.array([180, 255, 255])
 
 # mapped dartboard
@@ -361,13 +362,7 @@ def get_cam_position(frame):
             areas.append((int(x + (w / 2)), int(y + (h / 2)), area))
 
     x, y, right = max(areas)
-    print(x, y)
-
-    cv2.drawMarker(frame, (x, y), (0, 255, 0), cv2.MARKER_CROSS, 10, 5)
-
     x, y, left = min(areas)
-    print(x, y)
-
 
     if(left > right):
         cam_pos = 1
@@ -391,13 +386,17 @@ def manipulate():
     
     while True: 
         time.sleep(0.033)
-        ret, frame = cap.read() 
+        _ , frame = cap.read() 
         warp = frame
         if(len(cam_to_board) > 0):
             warp = cv2.warpPerspective(frame, cam_to_board, (906, 906))
         else:
             try:     
                 cam_to_board = calibrate_dartboard(frame)   
+                warp = cv2.warpPerspective(frame, cam_to_board, (906, 906))
+                masked_warp = circular_mask(warp)
+                subtraction_image = cv2.cvtColor(masked_warp, cv2.COLOR_BGR2GRAY)
+                cv2.imwrite("subtraction_image.png", subtraction_image)
                 print(cam_pos)
                 print(cam_to_board) 
             except:
@@ -407,11 +406,8 @@ def manipulate():
         warp = circular_mask(warp)
         mask = object_detector.apply(warp)
         contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
         dart_detection(contours)
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area > 1000:
-                cv2.drawContours(warp, [cnt], -1, (0, 255, 0), 3)
         if dart_thrown:
             counter += 1
             if int(counter) > 70:
@@ -421,12 +417,12 @@ def manipulate():
                 if min(coords) == (0, 0):
                     coords = []
                 else:
-                    if(cam_pos == 0):
-                        x, y = get_point_value(max(coords))
-                        point_history.append((max(coords)))
-                    else:
-                        x, y = get_point_value(min(coords))
-                        point_history.append((min(coords)))
+                    masked_warp = circular_mask(warp)      
+                    dart_image = cv2.cvtColor(masked_warp, cv2.COLOR_BGR2GRAY)
+
+                    cv2.imwrite("dart_image.png", dart_image)
+                    result_image = dart_image - subtraction_image
+                    cv2.imwrite("result_image.png", result_image)
 
                     current_point = (x, y)
                     send_scores = True
