@@ -214,7 +214,7 @@ def dart_detection(contours):
     global coords
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area > 1000:
+        if area > 100:
             counter = 0
             dart_thrown = True
             for c in cnt:
