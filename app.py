@@ -12,7 +12,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'  # for SocketIO
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 if not cap.isOpened():
     print("Cannot open camera")
     exit()
@@ -353,14 +353,13 @@ def get_mask():
         red_result = cv2.bitwise_and(frame, frame, mask=red_mask)
         green_result = cv2.bitwise_and(frame, frame, mask=green_mask)
         # output_frame = cv2.resize(output_frame, new_dimensions)
-        (flag, encodedImage) = cv2.imencode(".png", red_result+green_result)
+        (flag, encodedImage) = cv2.imencode(".jpg", red_result+green_result)
         if not flag:
             continue
 
         # yield the output frame in the byte format
         yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
         bytearray(encodedImage) + b'\r\n')
-
 
 # returns the postition of the cam
 #   0 for right
@@ -426,12 +425,10 @@ def manipulate():
         mask = object_detector.apply(warp)
         contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         dart_detection(contours)
-
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area > 1000:
-                cv2.drawContours(warp, [cnt], -1, (0, 100, 250), 3)
-        
+                cv2.drawContours(warp, [cnt], -1, (0, 255, 0), 3)
         if dart_thrown:
             counter += 1
             if int(counter) > 70:
