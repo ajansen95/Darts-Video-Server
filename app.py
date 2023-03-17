@@ -50,6 +50,31 @@ def reset():
     point_history = []
 
 
+@socketio.on('score_request')
+def send_score():
+    global send_scores
+    global current_point
+
+    print('sending scores...')
+    emit('connected', broadcast=True)
+
+    while True:
+        
+        if(send_scores):
+            print('send score') 
+            print(current_point)
+            if (current_point is not None):
+                multi, num = current_point
+                score = {
+                    "number": num,
+                    "multiplier": multi,
+                }
+                emit('score', score, broadcast=True)
+                current_point = None
+                print('sent score')
+            send_scores = False
+        time.sleep(1)
+
 @socketio.on('request_random')
 def send_random():
     print('sending scores...')    
@@ -88,30 +113,7 @@ def manipulated_video():
 def mask_video():
     return Response(get_mask(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
-@socketio.on('score_request')
-def send_score():
-    global send_scores
-    global current_point
 
-    print('sending scores...')
-    emit('connected', broadcast=True)
-
-    while True:
-        
-        if(send_scores):
-            print('send score') 
-            print(current_point)
-            if (current_point is not None):
-                multi, num = current_point
-                score = {
-                    "number": num,
-                    "multiplier": multi,
-                }
-                emit('score', score, broadcast=True)
-                current_point = None
-                print('sent score')
-            send_scores = False
-        time.sleep(1)
 
 if __name__ == '__main__':
     app.run()
