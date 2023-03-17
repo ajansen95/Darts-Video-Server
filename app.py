@@ -12,7 +12,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'  # for SocketIO
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 if not cap.isOpened():
     print("Cannot open camera")
     exit()
@@ -49,20 +49,28 @@ def reset():
     global point_history
     point_history = []
 
+@socketio.on('score_request')
+def send_score():
+    global send_scores
+    global current_point
 
-@socketio.on('request_random')
-def send_random():
-    print('sending scores...')    
-    global send_scores    
-    send_scores = True    
-    while send_scores:        
-        score = {            
-            "number": random.randint(0, 20),            
-            "multiplier": random.randint(1, 3),        
-            }        
-        emit('score', score)        
-        print('emitted score: ' + str(score))        
-        time.sleep(5)
+    while True:
+        if(send_scores):
+            print('sending score...') 
+            print(current_point)
+            if (current_point is not None):
+                multi, num = current_point
+                score = {
+                    "number": num,
+                    "multiplier": multi,
+                }
+                emit('score', score, broadcast=True)
+                current_point = None
+                print('sent score')
+                send_scores = False
+        time.sleep(1)
+
+
 
 @socketio.on('score_stop')
 def stop_score():
@@ -88,30 +96,6 @@ def manipulated_video():
 def mask_video():
     return Response(get_mask(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
-@socketio.on('score_request')
-def send_score():
-    global send_scores
-    global current_point
-
-    print('sending scores...')
-    emit('connected', broadcast=True)
-
-    while True:
-        
-        if(send_scores):
-            print('send score') 
-            print(current_point)
-            if (current_point is not None):
-                multi, num = current_point
-                score = {
-                    "number": num,
-                    "multiplier": multi,
-                }
-                emit('score', score, broadcast=True)
-                current_point = None
-                print('sent score')
-            send_scores = False
-        time.sleep(1)
 
 if __name__ == '__main__':
     app.run()
@@ -351,14 +335,13 @@ def get_mask():
         red_result = cv2.bitwise_and(frame, frame, mask=red_mask)
         green_result = cv2.bitwise_and(frame, frame, mask=green_mask)
         # output_frame = cv2.resize(output_frame, new_dimensions)
-        (flag, encodedImage) = cv2.imencode(".png", red_result+green_result)
+        (flag, encodedImage) = cv2.imencode(".jpg", red_result+green_result)
         if not flag:
             continue
 
         # yield the output frame in the byte format
         yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' +
         bytearray(encodedImage) + b'\r\n')
-
 
 # returns the postition of the cam
 #   0 for right
@@ -407,6 +390,7 @@ def manipulate():
     
     
     while True: 
+        time.sleep(0.033)
         ret, frame = cap.read() 
         warp = frame
         if(len(cam_to_board) > 0):
@@ -424,12 +408,10 @@ def manipulate():
         mask = object_detector.apply(warp)
         contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         dart_detection(contours)
-
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area > 1000:
-                cv2.drawContours(warp, [cnt], -1, (0, 100, 250), 3)
-        
+                cv2.drawContours(warp, [cnt], -1, (0, 255, 0), 3)
         if dart_thrown:
             counter += 1
             if int(counter) > 70:
