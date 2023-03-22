@@ -12,7 +12,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'  # for SocketIO
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 if not cap.isOpened():
     print("Cannot open camera")
     exit()
@@ -175,7 +175,8 @@ distance = [(0, 15, 50), (16, 31, 25), (32, 194, 1), (194, 215, 3), (216, 325, 1
 
 coords = []
 
-# Calibrate a given frame
+# Calibrate a given frame so that the Dartboard is
+# Transformed to a "Perfect Dartboard"
 def calibrate_dartboard(frame):
     board_points = [[453, 120], [785, 450], [453, 785], [120, 450]]
     cam_points = []
@@ -224,7 +225,8 @@ def calibrate_dartboard(frame):
     return cam_to_board
 
 
-# Detect dart tip and return the coordinates of it
+# Detect if a Dart was thrown, adds possible coordinates of dart tip 
+# into an Array
 def dart_detection(contours):
     global dart_thrown
     global counter
@@ -249,8 +251,8 @@ def circular_mask(frame):
     stream = white - out
     return stream
 
+# makes Black background transparent
 def remove_background(frame):
-    # make background transparent
     tmp = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     _,alpha = cv2.threshold(tmp, 10, 255,cv2.THRESH_BINARY)
     b, g, r = cv2.split(frame)
@@ -292,7 +294,7 @@ def get_point_value(coord):
             multiplier = d[2]
             if d[2] == 25 or d[2] == 50:
                 print(str(multiplier) + " * " + str(points))
-                return multiplier, 0
+                return 1, multiplier
             break
 
     for ang in angles:
@@ -309,7 +311,9 @@ def get_point_value(coord):
     return multiplier, points
 
 
-# test functions
+# Test Function
+# Marks the 4 Calibrationpoints
+# Not used in the webapp
 def calibration_points(frame):
     # Put masks on the frame
     img_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -318,7 +322,7 @@ def calibration_points(frame):
 
     contours, _ = cv2.findContours(red_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     coords = []
-    # Iterate through all contours and append the mid of each contour in an array
+    # Iterate through all contours and append the center of each contour in an array
     # First for the contours of the red mask
     for cnt in contours:
         area = cv2.contourArea(cnt)
@@ -343,6 +347,7 @@ def calibration_points(frame):
     return frame
 
 
+# Returns the Videoframe in red/green
 def get_mask():
     while True:
 
@@ -395,7 +400,7 @@ def get_cam_position(frame):
 
 # Manipulate the current Camera frame
 def manipulate():
-    object_detector = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=60, detectShadows=False)
+    object_detector = cv2.createBackgroundSubtractorMOG2(history=100, varThreshold=60, detectShadows=False)
     
     counter = 0
     cam_to_board = []
@@ -431,7 +436,8 @@ def manipulate():
                 cv2.drawContours(warp, [cnt], -1, (0, 255, 0), 3)
         if dart_thrown:
             counter += 1
-            if int(counter) > 70:
+            if counter > 20:
+                print('SENT')
                 counter = 0
                 dart_thrown = False
                 print(min(coords))
