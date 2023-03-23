@@ -54,10 +54,6 @@ def reset():
 def send_score():
     global send_scores
     global current_point
-
-    print('sending scores...')
-    emit('connected', broadcast=True)
-
     while True:
         
         if(send_scores):
