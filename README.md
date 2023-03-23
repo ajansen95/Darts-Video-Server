@@ -6,6 +6,7 @@ Installation instructions:
 3. Run ```py -m venv venv``` in the root directory of this project, to setup a new virtual environment for installing the projects' dependencies.
 
 If you're on Windows Powershell you might need step 4. to execute step 5., otherwise skip this step
+
 4. Run ```Set-ExecutionPolicy -ExecutionPolicy RemoteSigned``` in powershell
 
 5. Run ```.\venv\Scripts\activate.ps1``` to activate your virtual environment
